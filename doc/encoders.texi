@@ -615,7 +615,7 @@ and slightly improves compression.
 
 Opus encoder.
 
-This is a native FFmpeg encoder for the Opus format. Currently its in development and
+This is a native FFmpeg encoder for the Opus format. Currently, it's in development and
 only implements the CELT part of the codec. Its quality is usually worse and at best
 is equal to the libopus encoder.
 
@@ -2237,6 +2237,12 @@ the two temporal layer 2 frames within the temporal period.
 @end table
 @end table
 
+@item VP8-specific options
+@table @option
+@item screen-content-mode
+Screen content mode, one of: 0 (off), 1 (screen), 2 (screen with more aggressive rate control).
+@end table
+
 @item VP9-specific options
 @table @option
 @item lossless
@@ -2972,7 +2978,7 @@ Set the encoder preset value to determine encoding speed [fast, medium, slow, pl
 Set the encoder tune parameter [psnr, zerolatency]
 
 @item profile (@emph{profile})
-Set the encoder profile [0: baselie; 1: main]
+Set the encoder profile [0: baseline; 1: main]
 
 @item crf (@emph{crf})
 Set the quality for constant quality mode.
@@ -3332,8 +3338,8 @@ quality range is 1 to 51, with 1 being the best quality.
 @end itemize
 
 @item
-Otherwise, a bitrate-based mode is used. For all of those, you should specify at
-least the desired average bitrate with the @option{b} option.
+Otherwise when the desired average bitrate is specified with the @option{b}
+option, a bitrate-based mode is used.
 @itemize @minus
 @item
 @var{LA} - VBR with lookahead, when the @option{look_ahead} option is specified.
@@ -3354,6 +3360,9 @@ than the average bitrate.
 @option{avbr_accuracy} and @option{avbr_convergence} are set to non-zero. This
 mode is available for H264 and HEVC on Windows.
 @end itemize
+
+@item
+Otherwise the default ratecontrol method @var{CQP} is used.
 @end itemize
 
 Note that depending on your system, a different mode than the one you specified
@@ -4079,6 +4088,10 @@ Quality-defined variable-bitrate.
 @item AVBR
 Average variable bitrate.
 @end table
+
+@item blbrc
+Enable block level rate control, which assigns different bitrate block by block.
+Invalid for CQP mode.
 
 @end table
 

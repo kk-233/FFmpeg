@@ -28,6 +28,7 @@
 #include "libavutil/avassert.h"
 #include "libavformat/internal.h"
 #include "avformat.h"
+#include "demux.h"
 
 #define SCD_MAGIC              ((uint64_t)MKBETAG('S', 'E', 'D', 'B') << 32 | \
                                           MKBETAG('S', 'S', 'C', 'F'))
@@ -365,11 +366,11 @@ static int scd_read_close(AVFormatContext *s)
     return 0;
 }
 
-const AVInputFormat ff_scd_demuxer = {
-    .name           = "scd",
-    .long_name      = NULL_IF_CONFIG_SMALL("Square Enix SCD"),
+const FFInputFormat ff_scd_demuxer = {
+    .p.name         = "scd",
+    .p.long_name    = NULL_IF_CONFIG_SMALL("Square Enix SCD"),
     .priv_data_size = sizeof(SCDDemuxContext),
-    .flags_internal = FF_FMT_INIT_CLEANUP,
+    .flags_internal = FF_INFMT_FLAG_INIT_CLEANUP,
     .read_probe     = scd_probe,
     .read_header    = scd_read_header,
     .read_packet    = scd_read_packet,

@@ -31,10 +31,6 @@
 #define MAX_SLICES  1024
 #define INVALID_REF 0xffff
 
-#define REF_RESOURCE(index) if (index != INVALID_REF) { \
-    ctx->ref_resources[index] = frames_hwctx->texture_infos[index].texture; \
-}
-
 typedef struct D3D12DecodePictureContext {
     DXVA_PictureParameters  pp;
     DXVA_QmatrixData        qm;
@@ -49,7 +45,6 @@ static int d3d12va_mpeg2_start_frame(AVCodecContext *avctx, av_unused const uint
     const MpegEncContext      *s       = avctx->priv_data;
     D3D12VADecodeContext      *ctx     = D3D12VA_DECODE_CONTEXT(avctx);
     D3D12DecodePictureContext *ctx_pic = s->current_picture_ptr->hwaccel_picture_private;
-    DXVA_QmatrixData          *qm      = &ctx_pic->qm;
 
     if (!ctx)
         return -1;
@@ -76,8 +71,6 @@ static int d3d12va_mpeg2_decode_slice(AVCodecContext *avctx, const uint8_t *buff
     const MpegEncContext      *s       = avctx->priv_data;
     D3D12DecodePictureContext *ctx_pic = s->current_picture_ptr->hwaccel_picture_private;
 
-    int is_field = s->picture_structure != PICT_FRAME;
-
     if (ctx_pic->slice_count >= MAX_SLICES) {
         return AVERROR(ERANGE);
     }
@@ -94,9 +87,6 @@ static int d3d12va_mpeg2_decode_slice(AVCodecContext *avctx, const uint8_t *buff
 
 static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPUT_STREAM_ARGUMENTS *input_args, ID3D12Resource *buffer)
 {
-    D3D12VADecodeContext      *ctx          = D3D12VA_DECODE_CONTEXT(avctx);
-    AVHWFramesContext         *frames_ctx   = D3D12VA_FRAMES_CONTEXT(avctx);
-    AVD3D12VAFramesContext    *frames_hwctx = frames_ctx->hwctx;
     const MpegEncContext      *s            = avctx->priv_data;
     D3D12DecodePictureContext *ctx_pic      = s->current_picture_ptr->hwaccel_picture_private;
 
@@ -104,7 +94,7 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
     const unsigned mb_count = s->mb_width * (s->mb_height >> is_field);
 
     int i;
-    uint8_t *mapped_data = NULL;
+    void *mapped_data = NULL;
     D3D12_VIDEO_DECODE_FRAME_ARGUMENT *args = &input_args->FrameArguments[input_args->NumFrameArguments++];
 
     D3D12_RANGE range = {
@@ -147,7 +137,6 @@ static int d3d12va_mpeg2_end_frame(AVCodecContext *avctx)
 {
     int ret;
     MpegEncContext            *s       = avctx->priv_data;
-    D3D12VADecodeContext      *ctx     = D3D12VA_DECODE_CONTEXT(avctx);
     D3D12DecodePictureContext *ctx_pic = s->current_picture_ptr->hwaccel_picture_private;
 
     if (ctx_pic->slice_count <= 0 || ctx_pic->bitstream_size <= 0)
@@ -163,7 +152,6 @@ static int d3d12va_mpeg2_end_frame(AVCodecContext *avctx)
 
 static int d3d12va_mpeg2_decode_init(AVCodecContext *avctx)
 {
-    const MpegEncContext       *s      = avctx->priv_data;
     D3D12VADecodeContext      *ctx     = D3D12VA_DECODE_CONTEXT(avctx);
 
     ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_MPEG2;

@@ -20,7 +20,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <assert.h>
 #include <string.h>
 #include <initguid.h>
 
@@ -63,14 +62,14 @@ unsigned ff_d3d12va_get_surface_index(const AVCodecContext *avctx,
     if (!res)
         goto fail;
 
-    if (!curr) {
-        for (i = 0; i < ctx->max_num_ref; i++) {
-            if (ctx->ref_resources[i] && res == ctx->ref_resources[i]) {
-                ctx->used_mask |= 1 << i;
-                return i;
-            }
+    for (i = 0; i < ctx->max_num_ref; i++) {
+        if (ctx->ref_resources[i] && res == ctx->ref_resources[i]) {
+            ctx->used_mask |= 1 << i;
+            return i;
         }
-    } else {
+    }
+
+    if (curr) {
         for (i = 0; i < ctx->max_num_ref; i++) {
             if (!((ctx->used_mask >> i) & 0x1)) {
                 ctx->ref_resources[i] = res;
@@ -80,7 +79,7 @@ unsigned ff_d3d12va_get_surface_index(const AVCodecContext *avctx,
     }
 
 fail:
-    assert(0);
+    av_log((AVCodecContext *)avctx, AV_LOG_WARNING, "Could not get surface index. Using 0 instead.\n");
     return 0;
 }
 
@@ -240,10 +239,14 @@ static int d3d12va_create_decoder(AVCodecContext *avctx)
 
     DX_CHECK(ID3D12VideoDevice_CheckFeatureSupport(device_hwctx->video_device, D3D12_FEATURE_VIDEO_DECODE_SUPPORT,
                                                    &feature, sizeof(feature)));
-    if (!(feature.SupportFlags & D3D12_VIDEO_DECODE_SUPPORT_FLAG_SUPPORTED) ||
-        !(feature.DecodeTier >= D3D12_VIDEO_DECODE_TIER_2)) {
-        av_log(avctx, AV_LOG_ERROR, "D3D12 decoder doesn't support on this device\n");
-        return AVERROR(EINVAL);
+    if (!(feature.SupportFlags & D3D12_VIDEO_DECODE_SUPPORT_FLAG_SUPPORTED)) {
+        av_log(avctx, AV_LOG_ERROR, "D3D12 video decode is not supported on this device.\n");
+        return AVERROR(ENOSYS);
+    }
+    if (!(feature.DecodeTier >= D3D12_VIDEO_DECODE_TIER_2)) {
+        av_log(avctx, AV_LOG_ERROR, "D3D12 video decode on this device requires tier %d support, "
+               "but it is not implemented.\n", feature.DecodeTier);
+        return AVERROR_PATCHWELCOME;
     }
 
     desc = (D3D12_VIDEO_DECODER_DESC) {
@@ -267,7 +270,6 @@ fail:
 int ff_d3d12va_common_frame_params(AVCodecContext *avctx, AVBufferRef *hw_frames_ctx)
 {
     AVHWFramesContext      *frames_ctx   = (AVHWFramesContext *)hw_frames_ctx->data;
-    AVHWDeviceContext      *device_ctx   = frames_ctx->device_ctx;
 
     frames_ctx->format    = AV_PIX_FMT_D3D12;
     frames_ctx->sw_format = avctx->sw_pix_fmt == AV_PIX_FMT_YUV420P10 ? AV_PIX_FMT_P010 : AV_PIX_FMT_NV12;
@@ -324,10 +326,9 @@ int ff_d3d12va_decode_init(AVCodecContext *avctx)
         return AVERROR(ENOMEM);
 
     ctx->objects_queue = av_fifo_alloc2(D3D12VA_VIDEO_DEC_ASYNC_DEPTH,
-                                          sizeof(HelperObjects), AV_FIFO_FLAG_AUTO_GROW);
+                                        sizeof(HelperObjects), AV_FIFO_FLAG_AUTO_GROW);
     if (!ctx->objects_queue)
         return AVERROR(ENOMEM);
-
 
     DX_CHECK(ID3D12Device_CreateFence(ctx->device_ctx->device, 0, D3D12_FENCE_FLAG_NONE,
                                       &IID_ID3D12Fence, (void **)&ctx->sync_ctx.fence));
@@ -406,15 +407,14 @@ int ff_d3d12va_decode_uninit(AVCodecContext *avctx)
     return 0;
 }
 
-static inline int d3d12va_update_reference_frames_state(AVCodecContext *avctx, D3D12_RESOURCE_BARRIER *barriers, int state_before, int state_end)
+static inline int d3d12va_update_reference_frames_state(AVCodecContext *avctx, D3D12_RESOURCE_BARRIER *barriers,
+                                                        ID3D12Resource *current_resource, int state_before, int state_end)
 {
     D3D12VADecodeContext   *ctx          = D3D12VA_DECODE_CONTEXT(avctx);
-    AVHWFramesContext      *frames_ctx   = D3D12VA_FRAMES_CONTEXT(avctx);
-    AVD3D12VAFramesContext *frames_hwctx = frames_ctx->hwctx;
 
     int num_barrier = 0;
     for (int i = 0; i < ctx->max_num_ref; i++) {
-        if (((ctx->used_mask >> i) & 0x1) && ctx->ref_resources[i]) {
+        if (((ctx->used_mask >> i) & 0x1) && ctx->ref_resources[i] && ctx->ref_resources[i] != current_resource) {
             barriers[num_barrier].Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             barriers[num_barrier].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
             barriers[num_barrier].Transition = (D3D12_RESOURCE_TRANSITION_BARRIER){
@@ -437,8 +437,6 @@ int ff_d3d12va_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
 {
     int ret;
     D3D12VADecodeContext   *ctx               = D3D12VA_DECODE_CONTEXT(avctx);
-    AVHWFramesContext      *frames_ctx        = D3D12VA_FRAMES_CONTEXT(avctx);
-    AVD3D12VAFramesContext *frames_hwctx      = frames_ctx->hwctx;
     ID3D12Resource         *buffer            = NULL;
     ID3D12CommandAllocator *command_allocator = NULL;
     AVD3D12VAFrame         *f                 = (AVD3D12VAFrame *)frame->data[0];
@@ -506,15 +504,14 @@ int ff_d3d12va_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
 
     DX_CHECK(ID3D12VideoDecodeCommandList_Reset(cmd_list, command_allocator));
 
-    num_barrier += d3d12va_update_reference_frames_state(avctx, &barriers[1], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_VIDEO_DECODE_READ);
+    num_barrier += d3d12va_update_reference_frames_state(avctx, &barriers[1], resource, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_VIDEO_DECODE_READ);
 
     ID3D12VideoDecodeCommandList_ResourceBarrier(cmd_list, num_barrier, barriers);
 
     ID3D12VideoDecodeCommandList_DecodeFrame(cmd_list, ctx->decoder, &output_args, &input_args);
 
-    barriers[0].Transition.StateBefore = barriers[0].Transition.StateAfter;
-    barriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
-    d3d12va_update_reference_frames_state(avctx, &barriers[1], D3D12_RESOURCE_STATE_VIDEO_DECODE_READ, D3D12_RESOURCE_STATE_COMMON);
+    for (int i = 0; i < num_barrier; i++)
+        FFSWAP(D3D12_RESOURCE_STATES, barriers[i].Transition.StateBefore, barriers[i].Transition.StateAfter);
 
     ID3D12VideoDecodeCommandList_ResourceBarrier(cmd_list, num_barrier, barriers);
 

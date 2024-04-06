@@ -259,8 +259,8 @@ int ff_nvdec_decode_uninit(AVCodecContext *avctx)
 {
     NVDECContext *ctx = avctx->internal->hwaccel_priv_data;
 
-    av_freep(&ctx->bitstream);
     av_freep(&ctx->bitstream_internal);
+    ctx->bitstream           = NULL;
     ctx->bitstream_len       = 0;
     ctx->bitstream_allocated = 0;
 
@@ -664,6 +664,8 @@ int ff_nvdec_simple_end_frame(AVCodecContext *avctx)
     NVDECContext *ctx = avctx->internal->hwaccel_priv_data;
     int ret = ff_nvdec_end_frame(avctx);
     ctx->bitstream = NULL;
+    ctx->bitstream_len = 0;
+    ctx->nb_slices = 0;
     return ret;
 }
 
@@ -680,7 +682,7 @@ int ff_nvdec_simple_decode_slice(AVCodecContext *avctx, const uint8_t *buffer,
     ctx->slice_offsets = tmp;
 
     if (!ctx->bitstream)
-        ctx->bitstream = (uint8_t*)buffer;
+        ctx->bitstream = buffer;
 
     ctx->slice_offsets[ctx->nb_slices] = buffer - ctx->bitstream;
     ctx->bitstream_len += size;
