@@ -30,6 +30,7 @@
 #include "libavutil/error.h"
 #include "libavutil/file.h"
 #include "libavutil/time.h"
+#include "libavutil/time_internal.h"
 
 static int ff_expand_text_function_internal(FFExpandTextContext *expand_text, AVBPrint *bp,
                                             char *name, unsigned argc, char **argv)
@@ -189,7 +190,7 @@ int ff_print_pts(void *log_ctx, AVBPrint *bp, double pts, const char *delta,
         if (!strcmp(fmt, "localtime"))
             localtime_r(&ms, &tm);
         else
-            gmtime_r(&ms, &tm);
+            ff_gmtime_r(&ms, &tm);
         av_bprint_strftime(bp, av_x_if_null(strftime_fmt, "%Y-%m-%d %H:%M:%S"), &tm);
     } else {
         av_log(log_ctx, AV_LOG_ERROR, "Invalid format '%s'\n", fmt);
@@ -219,7 +220,7 @@ int ff_print_time(void *log_ctx, AVBPrint *bp,
     if (localtime)
         localtime_r(&now, &tm);
     else
-        tm = *gmtime_r(&now, &tm);
+        tm = *ff_gmtime_r(&now, &tm);
 
     // manually parse format for %N (fractional seconds)
     begin = fmt;
